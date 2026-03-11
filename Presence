@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Five9 Agent Real-time Dashboard</title>
+    <style>
+        body { font-family: sans-serif; }
+        #agent-state { font-size: 24px; font-weight: bold; }
+        #queue-info { font-size: 18px; }
+    </style>
+</head>
+<body>
+
+    <h1>Five9 Agent Real-time Dashboard</h1>
+
+    <p>Agent State: <span id="agent-state">Connecting...</span></p>
+    <p>Calls in Queue: <span id="queue-info">Connecting...</span></p>
+
+    <script>
+        // --- Configuration ---
+        // IMPORTANT: In a production environment, you should dynamically
+        // obtain the apiHost from the Five9 metadata API.
+        // For this example, we are hardcoding it.
+        const apiHost = "app-scl.five9.com";
+        const wsUrl = "wss://" + apiHost + "/appsvcs/ws/1234";
+
+        // --- WebSocket Connection ---
+        const ws = new WebSocket(wsUrl);
+        let pingIntervalHandler = null;
+
+        // --- Event Listeners ---
+        ws.addEventListener('open', (event) => {
+            console.log("WebSocket connection opened.");
+            document.getElementById("agent-state").textContent = "Connected";
+            document.getElementById("queue-info").textContent = "Connected";
+
+            // Send a ping every 20 seconds to keep the connection alive
+            pingIntervalHandler = setInterval(() => {
+                ws.send("ping");
+            }, 20 * 1000);
+        });
+
+        ws.addEventListener('message', (event) => {
+            const data = JSON.parse(event.data);
+            const eventId = data.context.eventId;
+            const payload = data.payload;
+
+            // Log all incoming messages for debugging
+            console.log("Received message:", data);
+
+            switch(eventId) {
+                case '12': // EVENT_PRESENCE_UPDATED
+                    const presence = payload.presence;
+                    document.getElementById("agent-state").textContent = presence;
+                    console.log("Agent state changed to:", presence);
+                    break;
+                case '1010': // ServerConnected
+                    console.log("Server connected event received.");
+                    break;
+                case '1202': // Pong
+                    console.log("Pong received from server.");
+                    break;
+                // Add other event IDs as needed to get more data,
+                // for example, to get queue information. You may need
+                // to consult the Five9 documentation for the correct
+                // event ID for queue statistics.
+                default:
+                    // You can add logic here to handle other events.
+                    break;
+            }
+        });
+
+        ws.onclose = () => {
+            console.log("WebSocket connection closed.");
+            document.getElementById("agent-state").textContent = "Disconnected";
+            document.getElementById("queue-info").textContent = "Disconnected";
+            window.clearInterval(pingIntervalHandler);
+        };
+
+        window.addEventListener('unload', () => {
+            ws.close();
+        });
+
+    </script>
+
+</body>
+</html>
