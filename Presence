@@ -1,85 +1,116 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Five9 Agent Real-time Dashboard</title>
+    <title>Five9 Agent Real-time Dashboard (Dynamic)</title>
     <style>
         body { font-family: sans-serif; }
+        #status-message { color: #555; }
         #agent-state { font-size: 24px; font-weight: bold; }
         #queue-info { font-size: 18px; }
+        .error { color: red; font-weight: bold; }
     </style>
 </head>
 <body>
 
     <h1>Five9 Agent Real-time Dashboard</h1>
+    <p id="status-message">Initializing...</p>
 
-    <p>Agent State: <span id="agent-state">Connecting...</span></p>
-    <p>Calls in Queue: <span id="queue-info">Connecting...</span></p>
+    <p>Agent State: <span id="agent-state">Waiting for connection...</span></p>
+    <p>Calls in Queue: <span id="queue-info">Waiting for connection...</span></p>
 
     <script>
-        // --- Configuration ---
-        // IMPORTANT: In a production environment, you should dynamically
-        // obtain the apiHost from the Five9 metadata API.
-        // For this example, we are hardcoding it.
-        const apiHost = "app-scl.five9.com";
-        const wsUrl = "wss://" + apiHost + "/appsvcs/ws/1234";
+        // This async function will run as soon as the script loads
+        (async function initializeDashboard() {
+            const statusMessage = document.getElementById('status-message');
+            const agentStateSpan = document.getElementById('agent-state');
+            const queueInfoSpan = document.getElementById('queue-info');
 
-        // --- WebSocket Connection ---
-        const ws = new WebSocket(wsUrl);
-        let pingIntervalHandler = null;
+            try {
+                // Step 1: Fetch active session information to get the apiHost dynamically
+                statusMessage.textContent = "Fetching active session details...";
+                const response = await fetch('/appsvcs/rs/svc/agents/active_session');
 
-        // --- Event Listeners ---
-        ws.addEventListener('open', (event) => {
-            console.log("WebSocket connection opened.");
-            document.getElementById("agent-state").textContent = "Connected";
-            document.getElementById("queue-info").textContent = "Connected";
+                if (!response.ok) {
+                    throw new Error(`HTTP error! Status: ${response.status}. Are you logged into the Five9 Agent Desktop in another tab?`);
+                }
 
-            // Send a ping every 20 seconds to keep the connection alive
-            pingIntervalHandler = setInterval(() => {
-                ws.send("ping");
-            }, 20 * 1000);
-        });
+                const sessionInfo = await response.json();
+                const apiHost = sessionInfo.apiHost;
+                const sessionId = sessionInfo.sessionId; // The WebSocket URL often requires a session identifier
 
-        ws.addEventListener('message', (event) => {
-            const data = JSON.parse(event.data);
-            const eventId = data.context.eventId;
-            const payload = data.payload;
+                if (!apiHost) {
+                     throw new Error("Could not find 'apiHost' in the session response.");
+                }
 
-            // Log all incoming messages for debugging
-            console.log("Received message:", data);
+                statusMessage.textContent = `Connecting to WebSocket at ${apiHost}...`;
 
-            switch(eventId) {
-                case '12': // EVENT_PRESENCE_UPDATED
-                    const presence = payload.presence;
-                    document.getElementById("agent-state").textContent = presence;
-                    console.log("Agent state changed to:", presence);
-                    break;
-                case '1010': // ServerConnected
-                    console.log("Server connected event received.");
-                    break;
-                case '1202': // Pong
-                    console.log("Pong received from server.");
-                    break;
-                // Add other event IDs as needed to get more data,
-                // for example, to get queue information. You may need
-                // to consult the Five9 documentation for the correct
-                // event ID for queue statistics.
-                default:
-                    // You can add logic here to handle other events.
-                    break;
+                // Step 2: Use the dynamic apiHost to construct the WebSocket URL
+                const wsUrl = `wss://${apiHost}/appsvcs/ws/${sessionId}`;
+                const ws = new WebSocket(wsUrl);
+                let pingIntervalHandler = null;
+
+
+                // Step 3: Add WebSocket event listeners
+                ws.addEventListener('open', (event) => {
+                    console.log("WebSocket connection opened.");
+                    statusMessage.textContent = "Connection established successfully.";
+                    agentStateSpan.textContent = "Connected";
+                    queueInfoSpan.textContent = "Connected";
+
+                    // Send a ping every 20 seconds to keep the connection alive
+                    pingIntervalHandler = setInterval(() => {
+                        ws.send("ping");
+                    }, 20 * 1000);
+                });
+
+                ws.addEventListener('message', (event) => {
+                    const data = JSON.parse(event.data);
+                    const eventId = data.context.eventId;
+                    const payload = data.payload;
+
+                    console.log("Received message:", data);
+
+                    // You would handle various events here based on the Five9 API documentation
+                    switch(eventId) {
+                        case 'EVENT_PRESENCE_UPDATED': // Fictional event name for clarity
+                            const presence = payload.presence;
+                            agentStateSpan.textContent = presence;
+                            console.log("Agent state changed to:", presence);
+                            break;
+                        // Example: A fictional event for queue statistics
+                        case 'EVENT_QUEUE_STATS_UPDATED':
+                            const callsWaiting = payload.callsInQueue;
+                            queueInfoSpan.textContent = callsWaiting;
+                            console.log("Queue stats updated. Calls in queue:", callsWaiting);
+                            break;
+                        default:
+                            break;
+                    }
+                });
+
+                ws.onclose = () => {
+                    console.log("WebSocket connection closed.");
+                    statusMessage.textContent = "Connection closed.";
+                    agentStateSpan.textContent = "Disconnected";
+                    queueInfoSpan.textContent = "Disconnected";
+                    if (pingIntervalHandler) {
+                        clearInterval(pingIntervalHandler);
+                    }
+                };
+
+                window.addEventListener('unload', () => {
+                    ws.close();
+                });
+
+
+            } catch (error) {
+                console.error("Initialization failed:", error);
+                statusMessage.textContent = "Initialization Failed.";
+                agentStateSpan.textContent = "Error";
+                agentStateSpan.classList.add('error');
+                queueInfoSpan.innerHTML = `<span class="error">${error.message}</span>`;
             }
-        });
-
-        ws.onclose = () => {
-            console.log("WebSocket connection closed.");
-            document.getElementById("agent-state").textContent = "Disconnected";
-            document.getElementById("queue-info").textContent = "Disconnected";
-            window.clearInterval(pingIntervalHandler);
-        };
-
-        window.addEventListener('unload', () => {
-            ws.close();
-        });
-
+        })();
     </script>
 
 </body>
